@@ -17,3 +17,5 @@
 *.txt.gz
 *.tar.gz
 *.zip
+*.raw
+*.mhd
