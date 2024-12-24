@@ -31,7 +31,7 @@ CandidateInfoTuple = namedtuple(
  
 @functools.lru_cache(1)
 def getCandidateInfoList(requireOnDisk_bool=True):
-    mhd_list = glob.glob('data/subset*/*.mhd')
+    mhd_list = glob.glob('data/subset*/*.mhd') # 通配符匹配所有mhd文件
     presentOnDisk_set = {os.path.split(p)[-1][:-4] for p in mhd_list}
  
     diameter_dict = {}
@@ -84,9 +84,12 @@ class Ct:
             'data/subset*/{}.mhd'.format(series_uid)
         )[0]
  
-        ct_mhd = sitk.ReadImage(mhd_path)
+        ct_mhd = sitk.ReadImage(mhd_path) # 读取mhd文件，这个函数还可以隐式使用.raw文件
         ct_a = np.array(sitk.GetArrayFromImage(ct_mhd), dtype=np.float32)
  
+        # ct扫描亨氏单位，空气是-1000HU，水是0HU
+        # 丢掉-1000HU以下的部分和1000HU以上部分
+        # 肿瘤通常为 1g/cm^3，约等于0HU。
         ct_a.clip(-1000, 1000, ct_a)
  
         self.series_uid = series_uid
@@ -96,7 +99,7 @@ class Ct:
         self.vxSize_xyz = XyzTuple(*ct_mhd.GetSpacing())
         self.direction_a = np.array(ct_mhd.GetDirection()).reshape(3, 3)
  
-    # 获取特定候选体的原始数据
+    # 获取特定候选体的原始数据,减小范围
     def getRawCandidate(self, center_xyz, width_irc):
         center_irc = xyz2irc(
             center_xyz,
@@ -175,7 +178,7 @@ class LunaDataset(Dataset):
     def __len__(self):
         return len(self.candidateInfo_list)
  
-    # 根据索引获取数据项
+    # 根据索引获取数据项，操作维度。
     def __getitem__(self, ndx):
         candidateInfo_tup = self.candidateInfo_list[ndx]
         width_irc = (32, 48, 48)

@@ -6,6 +6,8 @@ not for any commercial purpose just for learning purpose.
 - project_root/
     - README.md            # 项目说明文档
     - requirements.txt        # 项目所需库
+    - model/                # 模型代码
+        - model.py            # 模型定义
     - tests/                # 测试代码
     - util/                # 工具代码
         - disk.py            # 内存缓存系统，缓存函数的返回结果，避免重复计算
