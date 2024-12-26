@@ -250,6 +250,10 @@ class LunaDataset(Dataset):
             ]
 
         # 验证集划分逻辑
+        # 使用 Python 的切片语法 [::val_stride] 来实现数据划分
+        # 当 isValSet_bool=True 时，使用 self.candidateInfo_list[::val_stride] 提取验证集
+        # 当 isValSet_bool=False 或未指定时，使用 del self.candidateInfo_list[::val_stride]
+        # 这会删除验证集使用的样本，剩余的样本作为训练集。
         if isValSet_bool:
             assert val_stride > 0, "val_stride must be positive for validation set"
             self.candidateInfo_list = self.candidateInfo_list[::val_stride]
@@ -268,6 +272,7 @@ class LunaDataset(Dataset):
         """返回数据集中样本的数量"""
         return len(self.candidateInfo_list)
 
+    # 数据访问接口
     def __getitem__(self, ndx: int) -> tuple:
         """
         获取指定索引的数据项
@@ -281,7 +286,8 @@ class LunaDataset(Dataset):
         candidateInfo_tup = self.candidateInfo_list[ndx]
         width_irc = DEFAULT_CHUNK_SIZE
 
-        # 获取数据块
+        # 获取数据块，数据预处理：裁剪、归一化
+        # 这里使用缓存机制，避免重复读取CT数据
         candidate_a, center_irc = getCtRawCandidate(
             candidateInfo_tup.series_uid,
             candidateInfo_tup.center_xyz,
