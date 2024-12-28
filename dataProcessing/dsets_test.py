@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
-from dsets import LunaDataset  # 假设你的文件名是dsets.py
+from dsets import LunaDataset  
 
 def test_luna_dataset():
     # 1. 创建训练集实例
