@@ -19,3 +19,7 @@
 *.zip
 *.raw
 *.mhd
+*.npy
+*.npz
+*.h5
+*.hdf5

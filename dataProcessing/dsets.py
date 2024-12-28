@@ -130,7 +130,7 @@ class Ct:
         slice_list = []
         for axis, (center_val, width) in enumerate(zip(center_irc, width_irc)):
             start_ndx = int(round(center_val - width/2))
-            end_ndx = int(round(start_ndx + width))
+            end_ndx = int(start_ndx + width)
             
             # 确保不会超出图像边界
             if start_ndx < 0:
@@ -149,37 +149,77 @@ class Ct:
 
         ct_chunk = self.hu_a[tuple(slice_list)]
         
-        # 如果提取的数据块大小不正确，进行填充
-        final_shape = width_irc
-        if ct_chunk.shape != width_irc:
-            pad_list = []
-            for i in range(3):
-                pad_needed = final_shape[i] - ct_chunk.shape[i]
-                if pad_needed > 0:
-                    pad_before = pad_needed // 2
-                    pad_after = pad_needed - pad_before
-                    pad_list.append((pad_before, pad_after))
-                else:
-                    pad_list.append((0, 0))
-            ct_chunk = np.pad(ct_chunk, pad_list, mode='constant', constant_values=CT_HU_MIN)
+        # 创建指定大小的输出数组
+        result_chunk = np.ones(width_irc, dtype=np.float32) * CT_HU_MIN
+        
+        # 计算复制区域的大小
+        copy_shape = [min(s.stop - s.start, w) for s, w in zip(slice_list, width_irc)]
+        
+        # 复制数据到结果数组
+        result_chunk[:copy_shape[0], :copy_shape[1], :copy_shape[2]] = \
+            ct_chunk[:copy_shape[0], :copy_shape[1], :copy_shape[2]]
 
-        return ct_chunk, center_irc
-
+        return result_chunk, center_irc
     @classmethod
     def clear_cache(cls):
         """清理类级别的缓存"""
         pass
 
-@functools.lru_cache(1, typed=True)
+@functools.lru_cache(1, typed=False)
 def getCt(series_uid: str) -> Ct:
     """获取CT实例的缓存版本"""
     return Ct(series_uid)
 
-@raw_cache.memoize(typed=True)
+@raw_cache.memoize(typed=False)
 def getCtRawCandidate(series_uid: str, center_xyz: tuple, width_irc: tuple) -> Tuple[np.ndarray, tuple]:
     """获取处理后的CT数据块（带缓存）"""
     ct = getCt(series_uid)
     return ct.getRawCandidate(center_xyz, width_irc)
+
+def custom_collate(batch):
+    """自定义的collate函数，确保所有张量具有相同的大小
+    
+    Args:
+        batch: 数据批次
+        
+    Returns:
+        tuple: (data, labels, series_uids, centers)
+    """
+    # 提取批次中的各个组件
+    data, labels, series_uids, centers = zip(*batch)
+    
+    # 记录原始形状
+    shapes = [d.shape for d in data]
+    if len(set(shapes)) > 1:
+        log.warning(f"Found inconsistent shapes in batch: {shapes}")
+    
+    # 确保所有数据具有相同的大小
+    target_shape = (1, 1, 32, 48, 48)
+    processed_data = []
+    
+    for i, d in enumerate(data):
+        if d.shape != target_shape:
+            log.debug(f"Reshaping sample {i} from {d.shape} to {target_shape}")
+            # 创建目标大小的张量
+            temp = torch.zeros(target_shape, dtype=d.dtype)
+            # 复制有效数据
+            temp[:, :, :min(d.shape[2], target_shape[2]),
+                      :min(d.shape[3], target_shape[3]),
+                      :min(d.shape[4], target_shape[4])] = \
+                d[:, :, :min(d.shape[2], target_shape[2]),
+                       :min(d.shape[3], target_shape[3]),
+                       :min(d.shape[4], target_shape[4])]
+            processed_data.append(temp)
+        else:
+            processed_data.append(d)
+    
+    # 将处理后的数据堆叠成批次
+    return (
+        torch.stack(processed_data),
+        torch.stack(labels),
+        list(series_uids),
+        torch.stack(centers)
+    )
 
 class LunaDataset(Dataset):
     def __init__(self,
