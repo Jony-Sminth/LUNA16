@@ -2,7 +2,7 @@ import unittest
 import torch
 import numpy as np
 from dsets import LunaDataset, getCt
-from transforms import TransformBuilder, create_transform
+from transforms import TransformBuilder
 
 class TestContrastMethods(unittest.TestCase):
     def setUp(self):

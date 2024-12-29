@@ -47,25 +47,25 @@ class TransformBuilder:
             return x
         return transform
 
-# 使用示例:
-def create_transform(normalize: bool = True, 
-                    window: bool = False,
-                    custom_func: Optional[Callable] = None) -> Callable:
-    """
-    创建数据变换函数
+# 使用:
+# def create_transform(normalize: bool = True, 
+#                     window: bool = False,
+#                     custom_func: Optional[Callable] = None) -> Callable:
+#     """
+#     创建数据变换函数
+#     动态构建处理链：根据参数决定使用哪些处理步骤
+#     Args:
+#         normalize: 是否进行归一化
+#         window: 是否进行窗位窗宽处理
+#         custom_func: 可选的自定义变换函数
+#     """
+#     builder = TransformBuilder()
     
-    Args:
-        normalize: 是否进行归一化
-        window: 是否进行窗位窗宽处理
-        custom_func: 可选的自定义变换函数
-    """
-    builder = TransformBuilder()
-    
-    if normalize:
-        builder.add_normalize()
-    if window:
-        builder.add_window()
-    if custom_func:
-        builder.add_custom(custom_func, "custom")
+#     if normalize:
+#         builder.add_normalize()
+#     if window:
+#         builder.add_window()
+#     if custom_func:
+#         builder.add_custom(custom_func, "custom")
         
-    return builder.build()
+#     return builder.build()
