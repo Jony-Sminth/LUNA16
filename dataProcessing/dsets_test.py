@@ -1,152 +1,121 @@
-import os
+import unittest
 import torch
-from torch.utils.data import DataLoader
 import numpy as np
-from dsets import LunaDataset, getCandidateInfoList, getCt, custom_collate
-from transforms import (
-    get_train_transform,
-    get_val_transform,
-    Compose,
-    NormalizeHU,
-    RandomFlip,
-    RandomRotation90
-)
-from util.logconf import logging
+from dsets import LunaDataset, getCt
+from transforms import TransformBuilder, create_transform
 
-log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
-
-def test_dataset_basic():
-    """测试数据集的基本功能"""
-    log.info("Testing basic dataset functionality...")
-    
-    # 创建训练集实例
-    train_ds = LunaDataset(
-        val_stride=10,
-        isValSet_bool=False
-    )
-    
-    # 创建验证集实例
-    val_ds = LunaDataset(
-        val_stride=10,
-        isValSet_bool=True
-    )
-    
-    # 检查数据集大小
-    log.info(f"Training dataset size: {len(train_ds)}")
-    log.info(f"Validation dataset size: {len(val_ds)}")
-    
-    # 测试单个数据项的获取
-    sample = train_ds[0]
-    log.info(f"Sample data shape: {sample[0].shape}")
-    log.info(f"Sample label shape: {sample[1].shape}")
-    log.info(f"Sample series_uid: {sample[2]}")
-    log.info(f"Sample center_irc: {sample[3]}")
-
-def test_transforms():
-    """测试数据转换功能"""
-    log.info("Testing transforms functionality...")
-    
-    # 创建带有不同转换的数据集
-    train_ds = LunaDataset(
-        val_stride=10,
-        isValSet_bool=False,
-        transform=get_train_transform(augment=True)
-    )
-    
-    val_ds = LunaDataset(
-        val_stride=10,
-        isValSet_bool=True,
-        transform=get_val_transform()
-    )
-    
-    # 测试训练集数据
-    train_sample = train_ds[0]
-    log.info(f"Transformed training sample shape: {train_sample[0].shape}")
-    log.info(f"Transformed training sample value range: [{train_sample[0].min():.2f}, {train_sample[0].max():.2f}]")
-    
-    # 测试验证集数据
-    val_sample = val_ds[0]
-    log.info(f"Transformed validation sample shape: {val_sample[0].shape}")
-    log.info(f"Transformed validation sample value range: [{val_sample[0].min():.2f}, {val_sample[0].max():.2f}]")
-
-def test_dataloader():
-    """测试数据加载器"""
-    log.info("Testing dataloader functionality...")
-    
-    # 创建数据集
-    train_ds = LunaDataset(
-        val_stride=10,
-        isValSet_bool=False,
-        transform=get_train_transform(augment=True)
-    )
-    
-    # 创建数据加载器，使用自定义的collate_fn
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=16,
-        shuffle=True,
-        num_workers=0,
-        collate_fn=custom_collate  # 使用自定义的collate函数
-    )
-    
-    # 测试一个批次
-    for batch_idx, (data, target, series_uid, center_irc) in enumerate(train_loader):
-        log.info(f"Batch {batch_idx}")
-        log.info(f"Batch data shape: {data.shape}")
-        log.info(f"Batch target shape: {target.shape}")
-        log.info(f"Batch series_uid length: {len(series_uid)}")
-        log.info(f"Batch center_irc shape: {center_irc.shape}")
-        break  # 只测试第一个批次
-
-def test_custom_transforms():
-    """测试自定义转换组合"""
-    log.info("Testing custom transforms combination...")
-    
-    # 创建自定义转换
-    custom_transform = Compose([
-        NormalizeHU(),
-        RandomFlip(p=0.5),
-        RandomRotation90(p=0.5)
-    ])
-    
-    # 使用自定义转换创建数据集
-    dataset = LunaDataset(
-        val_stride=10,
-        isValSet_bool=False,
-        transform=custom_transform
-    )
-    
-    # 测试数据
-    sample = dataset[0]
-    log.info(f"Custom transformed sample shape: {sample[0].shape}")
-    log.info(f"Custom transformed value range: [{sample[0].min():.2f}, {sample[0].max():.2f}]")
-
-def run_all_tests():
-    """运行所有测试"""
-    try:
-        # 首先测试基本的数据集功能
-        log.info("=== Testing Basic Dataset ===")
-        test_dataset_basic()
+class TestContrastMethods(unittest.TestCase):
+    def setUp(self):
+        self.dataset = LunaDataset(
+            val_stride=10,
+            isValSet_bool=False
+        )
         
-        # 然后测试自定义transforms
-        log.info("\n=== Testing Custom Transforms ===")
-        test_custom_transforms()
+    def test_contrast_methods(self):
+        """比较两种不同的对比度增强方法"""
+        print("\n=== 比较不同的对比度增强方法 ===")
         
-        # 接着测试预定义transforms
-        log.info("\n=== Testing Predefined Transforms ===")
-        test_transforms()
+        # 获取一个样本
+        sample_data, label, series_uid, center = self.dataset[0]
         
-        # 最后测试dataloader
-        log.info("\n=== Testing DataLoader ===")
-        test_dataloader()
+        # 方法1: 从0开始构建新的处理方法
+        def custom_read_ct_with_contrast(series_uid):
+            """在数据读取时就进行对比度增强"""
+            ct = getCt(series_uid)
+            # 在原始数据上直接进行对比度增强
+            enhanced = np.copy(ct.hu_a)
+            # 对比度增强处理
+            min_val, max_val = np.percentile(enhanced, [5, 95])
+            enhanced = np.clip(enhanced, min_val, max_val)
+            enhanced = (enhanced - min_val) / (max_val - min_val)
+            ct.hu_a = enhanced
+            return ct
+            
+        # 使用方法1处理数据
+        ct_enhanced = custom_read_ct_with_contrast(series_uid)
+        data_method1 = torch.tensor(ct_enhanced.hu_a).float()
         
-        log.info("\nAll tests completed successfully!")
+        # 方法2: 在现有transform基础上添加处理
+        transform_method2 = TransformBuilder()\
+            .add_normalize()\
+            .add_window()\
+            .add_custom(
+                lambda x: torch.clamp(
+                    (x - x.mean()) * 1.5 + x.mean(),  # 增强对比度
+                    -1, 1
+                ),
+                "contrast_enhance"
+            )\
+            .build()
+            
+        # 使用方法2处理数据
+        data_method2 = transform_method2(sample_data)
         
-    except Exception as e:
-        log.error(f"Error during testing: {str(e)}")
-        log.error("Stack trace:", exc_info=True)  # 添加更详细的错误信息
-        raise
+        # 打印比较结果
+        print("\n方法1 (数据读取时增强):")
+        print(f"范围: [{data_method1.min():.3f}, {data_method1.max():.3f}]")
+        print(f"均值: {data_method1.mean():.3f}")
+        print(f"标准差: {data_method1.std():.3f}")
+        
+        print("\n方法2 (Transform链增强):")
+        print(f"范围: [{data_method2.min():.3f}, {data_method2.max():.3f}]")
+        print(f"均值: {data_method2.mean():.3f}")
+        print(f"标准差: {data_method2.std():.3f}")
+        
+        # 显示处理效果的不同
+        print("\n两种方法的主要区别:")
+        print("1. 方法1在数据读取阶段就进行增强，影响后续所有处理")
+        print("2. 方法2保持原始数据不变，在transform链中进行增强")
+        
+        # 创建组合方法（两种方法结合）
+        transform_combined = TransformBuilder()\
+            .add_custom(
+                lambda x: torch.tensor(
+                    np.clip(x.numpy(), 
+                           np.percentile(x.numpy(), 5), 
+                           np.percentile(x.numpy(), 95))
+                ),
+                "initial_enhance"
+            )\
+            .add_normalize()\
+            .add_window()\
+            .add_custom(
+                lambda x: torch.clamp((x - x.mean()) * 1.5 + x.mean(), -1, 1),
+                "final_enhance"
+            )\
+            .build()
+            
+        # 使用组合方法
+        data_combined = transform_combined(sample_data)
+        
+        print("\n组合方法:")
+        print(f"范围: [{data_combined.min():.3f}, {data_combined.max():.3f}]")
+        print(f"均值: {data_combined.mean():.3f}")
+        print(f"标准差: {data_combined.std():.3f}")
 
-if __name__ == "__main__":
-    run_all_tests()
+    def test_usage_example(self):
+        """展示不同方法的使用方式"""
+        print("\n=== 使用方式示例 ===")
+        
+        # 方法1: 修改数据读取
+        def get_enhanced_ct(series_uid):
+            ct = getCt(series_uid)
+            # 增强处理...
+            return ct
+            
+        # 方法2: 使用transform链
+        transform = TransformBuilder()\
+            .add_normalize()\
+            .add_custom(lambda x: x * 1.5, "enhance")\
+            .build()
+            
+        # 在Dataset中使用
+        print("\n使用方法1:")
+        print("dataset = LunaDataset()")
+        print("ct = get_enhanced_ct(series_uid)")
+        
+        print("\n使用方法2:")
+        print("dataset = LunaDataset(transform=transform)")
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)
