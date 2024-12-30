@@ -1,3 +1,9 @@
+# dsets.py
+"""
+此模块实现了用于处理CT扫描数据的数据集类。
+与 transforms.py 配合使用，完成数据的加载和预处理Pipeline。
+"""
+
 # 导入必要的库
 import copy
 import csv
@@ -8,7 +14,7 @@ from typing import List, Tuple, Dict, Optional
 from collections import namedtuple
 from pathlib import Path
 
-import SimpleITK as sitk
+import SimpleITK as sitk  # 用于医学图像处理
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -21,23 +27,29 @@ from util.logconf import logging
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
+# 使用缓存来优化数据加载性能
 raw_cache = getCache('part2ch10_raw')
 
-# 定义数据结构
+# 定义数据结构：存储候选结节的信息
+# 与 transforms.py 中的变换函数协同工作，确保数据格式统一
 CandidateInfoTuple = namedtuple(
     'CandidateInfoTuple',
     'isNodule_bool, diameter_mm, series_uid, center_xyz',
 )
 
-# 处理相关的常量
-CT_HU_MIN = -1000
-CT_HU_MAX = 1000
-DEFAULT_CHUNK_SIZE = (32, 48, 48)
+# CT图像相关的常量
+# 这些常量同时影响 transforms.py 中的数据预处理
+CT_HU_MIN = -1000  # Hounsfield单位的最小值
+CT_HU_MAX = 1000   # Hounsfield单位的最大值
+DEFAULT_CHUNK_SIZE = (32, 48, 48)  # 默认数据块大小
 
 @functools.lru_cache(1)
 def getCandidateInfoList(requireOnDisk_bool: bool = True) -> List[CandidateInfoTuple]:
-    """获取所有候选结节信息"""
-    # 查找所有的.mhd文件
+    """
+    获取所有候选结节信息
+    返回的数据将被传递给 transforms.py 中的变换函数进行处理
+    """
+    # 查找所有的.mhd文件（医学图像格式）
     mhd_list = glob.glob('data/subset*/*.mhd')
     presentOnDisk_set = {os.path.split(p)[-1][:-4] for p in mhd_list}
 
@@ -86,18 +98,21 @@ def getCandidateInfoList(requireOnDisk_bool: bool = True) -> List[CandidateInfoT
     return candidateInfo_list
 
 class Ct:
+    """
+    CT扫描数据类，负责处理单个CT扫描
+    处理后的数据将被传递给 transforms.py 中的变换函数进行进一步处理
+    """
     def __init__(self, series_uid: str):
-        """初始化CT实例"""
+        """初始化CT实例，加载和预处理CT数据"""
         mhd_path = glob.glob('data/subset*/{}.mhd'.format(series_uid))[0]
         
-        # 读取CT图像
+        # 读取CT图像，转换为numpy数组
         ct_mhd = sitk.ReadImage(mhd_path)
         ct_a = np.array(sitk.GetArrayFromImage(ct_mhd), dtype=np.float32)
         
-        # 记录图像尺寸
         self.dims = ct_a.shape
         
-        # 裁剪HU值范围
+        # 裁剪HU值范围，与 transforms.py 中的预处理保持一致
         ct_a.clip(CT_HU_MIN, CT_HU_MAX, ct_a)
         
         self.series_uid = series_uid
@@ -108,7 +123,6 @@ class Ct:
         self.vxSize_xyz = XyzTuple(*ct_mhd.GetSpacing())
         self.direction_a = np.array(ct_mhd.GetDirection()).reshape(3, 3)
         
-        # Debug信息
         log.debug(f"CT {series_uid} loaded:")
         log.debug(f"Shape: {self.hu_a.shape}")
         log.debug(f"Origin: {self.origin_xyz}")
@@ -116,7 +130,10 @@ class Ct:
         log.debug(f"Direction: {self.direction_a}")
 
     def getRawCandidate(self, center_xyz: tuple, width_irc: tuple) -> Tuple[np.ndarray, tuple]:
-        """获取指定位置和大小的数据块"""
+        """
+        获取指定位置和大小的数据块
+        返回的数据将被传递给 transforms.py 中的变换函数进行处理
+        """
         center_irc = xyz2irc(
             center_xyz,
             self.origin_xyz,
@@ -141,7 +158,6 @@ class Ct:
                 end_ndx = self.hu_a.shape[axis]
                 start_ndx = int(end_ndx - width)
                 
-            # 再次确保边界有效
             start_ndx = max(0, start_ndx)
             end_ndx = min(self.hu_a.shape[axis], end_ndx)
             
@@ -160,6 +176,7 @@ class Ct:
             ct_chunk[:copy_shape[0], :copy_shape[1], :copy_shape[2]]
 
         return result_chunk, center_irc
+
     @classmethod
     def clear_cache(cls):
         """清理类级别的缓存"""
@@ -172,12 +189,17 @@ def getCt(series_uid: str) -> Ct:
 
 @raw_cache.memoize(typed=False)
 def getCtRawCandidate(series_uid: str, center_xyz: tuple, width_irc: tuple) -> Tuple[np.ndarray, tuple]:
-    """获取处理后的CT数据块（带缓存）"""
+    """
+    获取处理后的CT数据块（带缓存）
+    缓存的数据将被传递给 transforms.py 中的变换函数
+    """
     ct = getCt(series_uid)
     return ct.getRawCandidate(center_xyz, width_irc)
 
 def custom_collate(batch):
-    """自定义的collate函数，确保所有张量具有相同的大小
+    """
+    自定义的collate函数，确保所有张量具有相同的大小
+    与 transforms.py 中的变换函数配合，保证数据格式的一致性
     
     Args:
         batch: 数据批次
@@ -185,7 +207,6 @@ def custom_collate(batch):
     Returns:
         tuple: (data, labels, series_uids, centers)
     """
-    # 提取批次中的各个组件
     data, labels, series_uids, centers = zip(*batch)
     
     # 记录原始形状
@@ -200,9 +221,7 @@ def custom_collate(batch):
     for i, d in enumerate(data):
         if d.shape != target_shape:
             log.debug(f"Reshaping sample {i} from {d.shape} to {target_shape}")
-            # 创建目标大小的张量
             temp = torch.zeros(target_shape, dtype=d.dtype)
-            # 复制有效数据
             temp[:, :, :min(d.shape[2], target_shape[2]),
                       :min(d.shape[3], target_shape[3]),
                       :min(d.shape[4], target_shape[4])] = \
@@ -213,7 +232,6 @@ def custom_collate(batch):
         else:
             processed_data.append(d)
     
-    # 将处理后的数据堆叠成批次
     return (
         torch.stack(processed_data),
         torch.stack(labels),
@@ -222,11 +240,15 @@ def custom_collate(batch):
     )
 
 class LunaDataset(Dataset):
+    """
+    Luna数据集类
+    与 transforms.py 中的变换函数配合使用，构建完整的数据处理流水线
+    """
     def __init__(self,
                  val_stride: int = 0,
                  isValSet_bool: Optional[bool] = None,
                  series_uid: Optional[str] = None,
-                 transform = None):
+                 transform = None):  # transform参数接收来自 transforms.py 的变换函数
         """初始化数据集"""
         self.transform = transform
         self.candidateInfo_list = copy.copy(getCandidateInfoList())
@@ -255,7 +277,10 @@ class LunaDataset(Dataset):
         return len(self.candidateInfo_list)
 
     def __getitem__(self, ndx: int) -> tuple:
-        """获取指定索引的数据项"""
+        """
+        获取指定索引的数据项
+        数据会经过 transforms.py 中定义的变换函数进行处理
+        """
         candidateInfo_tup = self.candidateInfo_list[ndx]
         width_irc = DEFAULT_CHUNK_SIZE
 
@@ -269,6 +294,7 @@ class LunaDataset(Dataset):
             candidate_t = torch.from_numpy(candidate_a).float()
             candidate_t = candidate_t.unsqueeze(0)
 
+            # 应用来自 transforms.py 的变换
             if self.transform is not None:
                 candidate_t = self.transform(candidate_t)
 
