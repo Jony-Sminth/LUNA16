@@ -209,31 +209,21 @@ def custom_collate(batch):
     """
     data, labels, series_uids, centers = zip(*batch)
     
-    # 记录原始形状
-    shapes = [d.shape for d in data]
-    if len(set(shapes)) > 1:
-        log.warning(f"Found inconsistent shapes in batch: {shapes}")
-    
-    # 确保所有数据具有相同的大小
-    target_shape = (1, 1, 32, 48, 48)
-    processed_data = []
-    
+    # 检查每个样本是否是4D
     for i, d in enumerate(data):
-        if d.shape != target_shape:
-            log.debug(f"Reshaping sample {i} from {d.shape} to {target_shape}")
-            temp = torch.zeros(target_shape, dtype=d.dtype)
-            temp[:, :, :min(d.shape[2], target_shape[2]),
-                      :min(d.shape[3], target_shape[3]),
-                      :min(d.shape[4], target_shape[4])] = \
-                d[:, :, :min(d.shape[2], target_shape[2]),
-                       :min(d.shape[3], target_shape[3]),
-                       :min(d.shape[4], target_shape[4])]
-            processed_data.append(temp)
-        else:
-            processed_data.append(d)
+        if d.dim() != 4:
+            log.error(f"Sample {i} has incorrect dimensions: {d.shape}")
+            raise ValueError(f"Expected 4D tensor (C,D,H,W), got {d.dim()}D tensor")
+    
+    # stack会自动添加batch维度，变成5D [B,C,D,H,W]
+    batch_data = torch.stack(data)
+    
+    if batch_data.dim() != 5:
+        log.error(f"Final batch has incorrect dimensions: {batch_data.shape}")
+        raise ValueError(f"Expected 5D tensor, got {batch_data.dim()}D tensor")
     
     return (
-        torch.stack(processed_data),
+        batch_data,
         torch.stack(labels),
         list(series_uids),
         torch.stack(centers)
@@ -291,18 +281,24 @@ class LunaDataset(Dataset):
                 width_irc,
             )
 
+            # candidate_t = torch.from_numpy(candidate_a).float()
+            # candidate_t = candidate_t.unsqueeze(0)
+            # 确保返回5维数据 (B, C, D, H, W)
             candidate_t = torch.from_numpy(candidate_a).float()
-            candidate_t = candidate_t.unsqueeze(0)
-
-            # 应用来自 transforms.py 的变换
+            # 只添加channel维度，成为4D: [C,D,H,W]
+            candidate_t = candidate_t.unsqueeze(0)  
+            
+            log.debug(f"Tensor shape before transform: {candidate_t.shape}")
+            
+            # 应用变换
             if self.transform is not None:
-                candidate_t = self.transform(candidate_t)
-
-            pos_t = torch.tensor([
-                not candidateInfo_tup.isNodule_bool,
-                candidateInfo_tup.isNodule_bool
-            ], dtype=torch.long)
-
+                candidate_t = self.transform(candidate_t)  # 维持4D
+                
+            log.debug(f"Tensor shape after transform: {candidate_t.shape}")
+                
+            pos_t = torch.tensor(int(candidateInfo_tup.isNodule_bool),
+                    dtype=torch.long)
+            
             return (
                 candidate_t,
                 pos_t,

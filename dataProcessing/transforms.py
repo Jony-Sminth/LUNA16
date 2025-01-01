@@ -100,6 +100,9 @@ class TransformBuilder:
             transform_func: 组合后的变换函数，可直接传递给 LunaDataset 的 transform 参数
         """
         def transform(x):
+            # 输入维度检查
+            if x.dim() != 4:
+                raise ValueError(f"Expected 4D input tensor, got {x.dim()}D")
             # 按添加顺序依次应用所有变换
             for name, func in self.transforms:
                 x = func(x)

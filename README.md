@@ -8,7 +8,17 @@ not for any commercial purpose just for learning purpose.
     - requirements.txt        # 项目所需库
     - model/                # 模型代码
         - model.py            # 模型定义
-    - tests/                # 测试代码
+    - train/                # 训练代码
+        - train.py            # 训练脚本
+        - metrics.py      # 新增：评估指标相关代码
+        - trainer.py      # 新增：训练器类
+        - checkpoint_manager.py  # 检查点管理
+    - checkpoints/           # 新建文件夹，存放模型文件
+        - luna_models/       # 具体模型的检查点
+            - version_1/     # 版本控制
+                - best.pth   # 最佳模型
+                - last.pth   # 最新模型
+                - config.json # 训练配置
     - util/                # 工具代码
         - disk.py            # 内存缓存系统，缓存函数的返回结果，避免重复计算
         - logconf.py         # 统一的日志配置，帮助记录和调试程序运行过程
@@ -17,7 +27,10 @@ not for any commercial purpose just for learning purpose.
         - annotations.csv        # 标注文件
         - candidates.csv         # 候选文件
     - dataProcessing/
-        - data_process.py    # 数据处理代码
+        - transforms.ipynb      # 构建器模式的数据转换流程
+        - transforms.py       # 数据转换代码
+        - dsets.py            # 数据集定义
+        - dsets_test.py       # 测试数据集定义
     - requirements.txt          # 项目所需库
     - .gitignore            # Git 忽略文件
 ```
