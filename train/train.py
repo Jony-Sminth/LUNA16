@@ -18,11 +18,14 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
 def main():
+    """主函数，启动训练应用"""
     app = LunaTrainingApp()
     app.train()
 
 class LunaTrainingApp:
+    """Luna模型的训练应用类，负责初始化、训练和验证模型"""
     def __init__(self, sys_argv=None):
+        """初始化训练参数、设备、数据集、模型、优化器和指标计算器"""
         # 训练参数设置保持不变
         self.epochs = 100
         self.batch_size = 32
@@ -57,9 +60,9 @@ class LunaTrainingApp:
         
         # 添加维度验证
         sample_batch = next(iter(self.train_loader))
-        log.info(f"Sample batch shapes:")
-        log.info(f"Input: {sample_batch[0].shape}")
-        log.info(f"Label: {sample_batch[1].shape}")
+        # log.info(f"Sample batch shapes:")
+        # log.info(f"Input: {sample_batch[0].shape}")
+        # log.info(f"Label: {sample_batch[1].shape}")
         
         if sample_batch[0].dim() != 5:
             raise ValueError(f"Unexpected input dimensions: {sample_batch[0].shape}")
@@ -74,17 +77,20 @@ class LunaTrainingApp:
         self.val_metrics = LunaMetrics()
         
     def _init_model(self):
+        """初始化并返回Luna模型，并将其移动到指定设备"""
         model = LunaModel()
         model = model.to(self.device)
         return model
         
     def _get_transform(self):
+        """构建并返回数据预处理转换器"""
         return TransformBuilder()\
             .add_normalize()\
             .add_window(center=40, width=400)\
             .build()
             
     def _init_datasets(self):
+        """初始化并返回训练和验证数据集"""
         train_ds = LunaDataset(
             val_stride=self.val_stride,
             isValSet_bool=False,
@@ -100,12 +106,13 @@ class LunaTrainingApp:
         return train_ds, val_ds
 
     def _log_metrics(self, phase, metrics_dict, epoch):
-        """记录训练指标"""
+        """记录指定阶段的训练指标"""
         log.info(f'Epoch {epoch} {phase}:')
         for metric_name, value in metrics_dict.items():
             log.info(f'{metric_name}: {value:.4f}')
         
     def train(self):
+        """训练模型，并在验证集上进行评估，支持早停和学习率调整"""
         best_val_loss = float('inf')
         patience_counter = 0
         
