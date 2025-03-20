@@ -71,6 +71,133 @@ def build(self):
         return x
     return transform
 ```
+## Transform 基类与 LunaDataset 的协作机制
+
+### 3.2 基于接口的设计
+
+在 `transforms.py` 中，`Transform` 是一个抽象基类 (ABC)，定义了所有变换类必须实现的接口：
+
+```python
+class Transform(ABC):
+    @abstractmethod
+    def __call__(self, x: Union[torch.Tensor, np.ndarray]) -> Union[torch.Tensor, np.ndarray]:
+        pass
+```
+
+这个设计要求所有继承自 `Transform` 的类必须实现 `__call__` 方法，确保它们能够像函数一样被调用。
+
+### 3.3 LunaDataset 中的变换应用
+
+在 `dsets.py` 中，`LunaDataset` 类接受一个 `transform` 参数：
+
+```python
+def __init__(self,
+             val_stride: int = 0,
+             isValSet_bool: Optional[bool] = None,
+             series_uid: Optional[str] = None,
+             transform = None):
+    self.transform = transform
+    # 其他初始化代码...
+```
+
+而在 `__getitem__` 方法中，这个变换被应用到数据上：
+
+```python
+def __getitem__(self, ndx: int) -> tuple:
+    # 获取并准备数据...
+    candidate_t = torch.from_numpy(candidate_a).float()
+    candidate_t = candidate_t.unsqueeze(0)  # 添加 channel 维度
+    
+    # 应用变换
+    if self.transform is not None:
+        candidate_t = self.transform(candidate_t)
+    
+    # 返回处理后的数据...
+```
+
+### 3.4 实际协作流程
+
+整个协作流程如下：
+
+1. 首先，使用 `TransformBuilder` 构建一个变换函数：
+   ```python
+   transform = TransformBuilder()\
+       .add_normalize()\
+       .add_window()\
+       .build()
+   ```
+
+2. 这个变换函数被传递给 `LunaDataset` 的构造函数：
+   ```python
+   dataset = LunaDataset(transform=transform)
+   ```
+
+3. 在数据加载时，`LunaDataset.__getitem__` 方法对每个样本调用这个变换函数：
+   ```python
+   candidate_t = self.transform(candidate_t)
+   ```
+
+### 3.5. 变换的应用时机
+
+变换是在数据被请求时实时应用的，而不是预先处理。这样做有几个好处：
+- 内存效率更高（不需要存储所有预处理后的数据）
+- 灵活性更强（可以轻松更换变换策略而无需重新加载数据）
+- 支持随机变换（如数据增强）
+
+### 3.6 责任链实现的关键
+
+在 `TransformBuilder.build()` 方法中，所有添加的变换被组合成一个函数：
+
+```python
+def build(self) -> Callable:
+    def transform(x):
+        # 输入维度检查
+        if x.dim() != 4:
+            raise ValueError(f"Expected 4D input tensor, got {x.dim()}D")
+        # 按添加顺序依次应用所有变换
+        for name, func in self.transforms:
+            x = func(x)
+        return x
+    return transform
+```
+
+这个返回的 `transform` 函数实际上是一个闭包，它包含了添加的所有变换步骤，并且会按顺序依次应用。
+
+### 3.7 数据维度的约定
+
+注意代码中对输入维度的检查：`if x.dim() != 4`。这建立了一个约定：变换函数期望接收 4D 张量（通道、深度、高度、宽度），这与 `LunaDataset.__getitem__` 中的 `candidate_t = candidate_t.unsqueeze(0)` 相对应。
+
+这种约定确保了变换函数和数据集之间的接口一致性，是两者协作的重要基础。
+
+## 实际应用示例
+
+从 `dsets_test.py` 中的测试代码可以看出这种协作关系：
+
+```python
+# 创建数据集
+dataset = LunaDataset(val_stride=10, isValSet_bool=False)
+
+# 获取一个样本
+sample_data, label, series_uid, center = dataset[0]
+
+# 创建变换
+transform_method2 = TransformBuilder()\
+    .add_normalize()\
+    .add_window()\
+    .add_custom(
+        lambda x: torch.clamp(
+            (x - x.mean()) * 1.5 + x.mean(),  # 增强对比度
+            -1, 1
+        ),
+        "contrast_enhance"
+    )\
+    .build()
+    
+# 应用变换
+data_method2 = transform_method2(sample_data)
+```
+
+这里，虽然变换不是通过 `LunaDataset` 的构造函数传入的，但仍然可以直接应用到从数据集获取的样本上，展示了这种接口设计的灵活性。
 
 ### 3.2 关键转换功能
 
@@ -134,14 +261,14 @@ def getRawCandidate(self, center_xyz, width_irc):
 
 1. **可定制的转换流程**
    
-   系统允许医生或研究人员根据需要定制数据处理流程，就像搭积木一样组合不同的处理步骤：
+   允许研究人员根据需要定制数据处理流程，就像搭积木一样组合不同的处理步骤：
 
 ```python
 transform_builder = TransformBuilder()
 transform = transform_builder.add_normalize().add_window().build()
 ```
 
-2. **智能数据预处理**
+1. **智能数据预处理**
    
    在处理过程中，系统会自动进行一系列优化，确保数据的质量和处理效率：
 
@@ -150,7 +277,7 @@ transform = transform_builder.add_normalize().add_window().build()
 candidate_t = torch.from_numpy(candidate_a).float()
 ```
 
-### 4.3 性能优化的秘密
+### 4.3 性能优化
 
 为了确保系统能够快速响应医生的需求，我们实现了多层次的性能优化：
 
@@ -363,4 +490,4 @@ processed_data = dataset[0]
 3. 优秀的性能优化
 4. 对医学图像处理的特殊支持
 
-系统易于维护和扩展，也为处理大规模医学图像数据提供了可靠的基础架构。
+易于维护和扩展，也为处理大规模医学图像数据研究提供了可靠的基础架构。

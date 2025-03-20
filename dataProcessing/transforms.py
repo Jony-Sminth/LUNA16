@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 
 class Transform(ABC):
     """
-    Transform的基类
+    Transform的抽象基类（ABC）
     定义了所有变换类必须实现的接口
     配合 dsets.py 中的 LunaDataset.__getitem__ 方法使用
     """
